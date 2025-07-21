@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Remote Screen Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        #screen-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100vh;
+            overflow: auto;
+        }
+        /* Use an img element for JPEGs */
+        #screen {
+            width: auto;  /* Let the image determine its size */
+            height: auto;
+            max-width: 100%; /* Prevent overflow */
+            max-height: 100%;
+            object-fit: contain; /* Maintain aspect ratio */
+            image-rendering: -moz-crisp-edges; /* Firefox */
+            image-rendering: -webkit-optimize-contrast; /* Webkit (Chrome, Safari) */
+            image-rendering: -o-crisp-edges; /* Opera */
+            image-rendering: pixelated; /* Future proofing */
+            -ms-interpolation-mode: nearest-neighbor; /* IE (old) */
+        }
+
+        body { margin: 0; padding: 0; }
+    </style>
+    <!-- Include Socket.IO library (no hls.js!) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="screen-container">
+        <img id="screen" src="">  <!-- Use an <img> element for JPEG images -->
+    </div>
+
+    <script>
+        const screenImage = document.getElementById('screen');
+        let screenWidth, screenHeight;
+
+        // Connect to the WebSocket server
+        const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        // Event listener for receiving image frames (JPEG)
+        socket.on('image_frame', function(data) {
+            screenImage.src = 'data:image/jpeg;base64,' + data.data;
+            screenWidth = data.width;
+            screenHeight = data.height;
+        });
+
+        // Function to calculate corrected coordinates (for accurate clicks)
+        function calculateCorrectedCoordinates(event) {
+          if (!screenWidth || !screenHeight) return null;
+
+            const rect = screenImage.getBoundingClientRect(); // Use image element
+            const displayedWidth = rect.width;
+            const displayedHeight = rect.height;
+
+            const screenAspectRatio = screenWidth / screenHeight;
+            const displayedAspectRatio = displayedWidth / displayedHeight;
+
+            let correctedX, correctedY;
+
+            if (displayedAspectRatio > screenAspectRatio) {
+                const actualDisplayWidth = displayedHeight * screenAspectRatio;
+                const horizontalPadding = (displayedWidth - actualDisplayWidth) / 2;
+                correctedX = (event.clientX - rect.left - horizontalPadding) * (screenWidth / actualDisplayWidth);
+                correctedY = (event.clientY - rect.top) * (screenHeight / displayedHeight);
+            } else {
+                const actualDisplayHeight = displayedWidth / screenAspectRatio;
+                const verticalPadding = (displayedHeight - actualDisplayHeight) / 2;
+                correctedX = (event.clientX - rect.left) * (screenWidth / displayedWidth);
+                correctedY = (event.clientY - rect.top - verticalPadding) * (screenHeight / actualDisplayHeight);
+            }
+            correctedX = Math.max(0, Math.min(screenWidth - 1, Math.floor(correctedX))); // Bounds check
+            correctedY = Math.max(0, Math.min(screenHeight - 1, Math.floor(correctedY)));
+            return { x: correctedX, y: correctedY };
+        }
+
+
+        // --- Event Listeners (Clicks, Mousemove, Scroll, Keys) ---
+
+        document.addEventListener('click', async (event) => {
+            const coords = calculateCorrectedCoordinates(event);
+            if (!coords) return;
+            socket.emit('click', {x: coords.x, y: coords.y, button: 'left'});
+        });
+
+        document.addEventListener('contextmenu', async (event) => {
+            event.preventDefault(); // Prevent default context menu
+            const coords = calculateCorrectedCoordinates(event);
+            if (!coords) return;
+            socket.emit('click', {x: coords.x, y: coords.y, button: 'right'});
+        });
+
+        document.addEventListener('mousemove', async (event) => {
+            if (event.buttons === 1 && screenWidth && screenHeight) {
+                const coords = calculateCorrectedCoordinates(event);
+                if (!coords) return;
+                 socket.emit('move', {x: coords.x, y: coords.y});
+            }
+        });
+
+
+        document.addEventListener('wheel', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const dy = event.deltaY;
+            const dx = event.deltaX;
+            const mode = event.deltaMode;
+
+            console.log('Scroll event:', { dy, dx, mode }); // Detailed logging
+
+            // --- Sensitivity Adjustment (MUCH Lower Value) ---
+            const sensitivity = 0.05;  //  Start with a VERY low value (e.g., 0.05)
+
+            let scrollAmount = dy * sensitivity;
+
+            if (mode === 1) { // DOM_DELTA_LINE
+                // No extra multiplication
+            } else if (mode === 2) { // DOM_DELTA_PAGE
+                scrollAmount *= 20;  // Adjust as needed
+            }
+
+            socket.emit('scroll', {dy: scrollAmount});
+        });
+
+        document.addEventListener('keydown', async (event) => {
+            const key = event.key;
+            const code = event.code;
+            const shift = event.shiftKey;
+            const ctrl = event.ctrlKey;
+            const alt = event.altKey;
+            console.log('Key pressed:', { key, code, shift, ctrl, alt }); // Debugging
+            socket.emit('key', {key: key, code: code, shift: shift, ctrl: ctrl, alt: alt})
+        });
+
+    </script>
+</body>
+</html>
