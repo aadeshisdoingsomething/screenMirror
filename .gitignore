@@ -3,10 +3,6 @@
 .env.development
 .env.production
 .env.test
-.env 
-.config.ini
-.gemini.md
-.GEMINI.md
-.config.ini
-.GEMINI.MD
-.config.ini
+.env
+GEMINI.MD
+config.ini
